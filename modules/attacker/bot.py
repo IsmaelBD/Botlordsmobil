@@ -1,6 +1,7 @@
 """
 modules/attacker/bot.py — Attacker Bot
 Sends troop marches to attack targets on the map.
+Phase 3 Anti-Detection: randomized timing and session guarding.
 Uses the v13.9.1 synchronized march injection method.
 """
 
@@ -12,6 +13,7 @@ from pathlib import Path
 from typing import Optional
 
 from core.memory.radar import MemoryRadar
+from core.anti_detection import AntiDetection, SessionGuard
 
 
 # Default march template from game_analysis.md (101 bytes content, no header)
@@ -180,6 +182,7 @@ class AttackerBot:
     """
     High-level attack bot using the MarchInjector.
     Supports single-target attacks, battle loops, and rally coordination.
+    Phase 3 Anti-Detection: randomized timing and session guarding.
     """
 
     def __init__(self):
@@ -188,6 +191,8 @@ class AttackerBot:
             raise RuntimeError("Game not detected. Is Lords Mobile running?")
         self.client = self.radar.clients[0]
         self.injector = MarchInjector(self.radar, self.client)
+        self.anti_detection = AntiDetection()
+        self.session_guard = SessionGuard()
         self._load_config()
         self._load_targets()
 
@@ -209,23 +214,39 @@ class AttackerBot:
 
     def attack(self, zone_id: int, point_id: int, wait: int = None) -> bool:
         """Send a single attack march."""
+        if not self.session_guard.should_act("attack"):
+            print("[*] AttackerBot: Rate limit reached, taking a pause...")
+            self.session_guard.random_pause()
+            return False
+
         w = wait or self.cooldown
         print(f"[*] Attacking zone={zone_id}, point={point_id}")
         success = self.injector.inject(zone_id, point_id)
+
         if success:
-            print(f"[*] Waiting {w}s before next action...")
-            time.sleep(w)
+            self.session_guard.record_action("attack")
+            # Randomized wait instead of fixed
+            delay = self.anti_detection.random_cycle_delay()
+            print(f"[*] Waiting {delay:.1f}s before next action...")
+            time.sleep(delay)
+
         return success
 
     def attack_rally(self, target: dict) -> bool:
         """Attack with rally parameters."""
+        if not self.session_guard.should_act("attack"):
+            return False
+
         zone = target.get("zone", 507)
         point = target.get("point", 59)
         rally = target.get("rally", False)
         troops = target.get("troops", None)  # Optional custom troop config
 
         print(f"[*] Rally attack: zone={zone}, point={point}, rally={rally}")
-        return self.injector.inject(zone, point, troops)
+        result = self.injector.inject(zone, point, troops)
+        if result:
+            self.session_guard.record_action("attack")
+        return result
 
     def run_battle_loop(self, targets: list[dict] = None, loop: bool = False) -> None:
         """
@@ -242,28 +263,43 @@ class AttackerBot:
             print("[!] No targets configured. Add targets to config/targets.json")
             return
 
+        # Check cooldown at start of cycle
+        if self.session_guard.enforced_cooldown():
+            remaining = self.session_guard.cooldown_remaining
+            print(f"[*] AttackerBot: In cooldown, {remaining:.0f}s remaining")
+            return
+
         print(f"[*] Battle loop starting — {len(targets)} targets, loop={loop}")
 
         iteration = 0
         while True:
             iteration += 1
             print(f"\n=== Iteration {iteration} ===")
+
             for i, t in enumerate(targets):
                 zone = t.get("zone", 507)
                 point = t.get("point", 59)
                 wait = t.get("wait", self.cooldown)
 
                 print(f"[*] [{i+1}/{len(targets)}] zone={zone}, point={point}")
-                self.injector.inject(zone, point, t.get("troops"))
+                success = self.injector.inject(zone, point, t.get("troops"))
+
+                if success:
+                    self.session_guard.record_action("attack")
 
                 if i < len(targets) - 1:
-                    print(f"[*] Cooldown {wait}s...")
-                    time.sleep(wait)
+                    # Randomized cooldown between targets
+                    delay = self.anti_detection.random_cycle_delay()
+                    print(f"[*] Cooldown {delay:.1f}s...")
+                    time.sleep(delay)
 
             if not loop:
                 break
-            print(f"[+] Cycle complete. Restarting in {self.cooldown}s...")
-            time.sleep(self.cooldown)
+
+            # Randomized restart delay instead of fixed cooldown
+            cycle_delay = self.anti_detection.random_cycle_delay()
+            print(f"[+] Cycle complete. Restarting in {cycle_delay:.1f}s...")
+            time.sleep(cycle_delay)
 
 
 # Quick test

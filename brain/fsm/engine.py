@@ -1,6 +1,7 @@
 """
 brain/fsm/engine.py — Finite State Machine Engine
 Central decision loop that orchestrates all bot modules.
+Phase 3 Anti-Detection: randomized polling and session guarding.
 """
 
 import time
@@ -12,6 +13,7 @@ from typing import Optional
 
 from core.memory.radar import MemoryRadar
 from core.win32.hands import Win32GhostClient
+from core.anti_detection import AntiDetection, SessionGuard
 
 
 class BotState(Enum):
@@ -30,13 +32,15 @@ class FSMBotEngine:
     1. Reads game state from memory
     2. Decides the next state based on rules
     3. Executes the corresponding module
-    4. Loops
+    4. Loops with anti-detection randomized timing
     """
 
     def __init__(self):
         self.state = BotState.IDLE
         self.radar = MemoryRadar()
         self.hands = Win32GhostClient()
+        self.anti_detection = AntiDetection()
+        self.session_guard = SessionGuard()
         self._load_config()
         self._running = False
         self._thread: Optional[threading.Thread] = None
@@ -74,18 +78,32 @@ class FSMBotEngine:
         print("[*] FSM Engine stopped")
 
     def _loop(self) -> None:
-        """Main FSM loop — runs every polling_interval seconds."""
+        """Main FSM loop — randomized polling interval to avoid pattern detection."""
         while self._running:
             try:
+                # Check cooldown before each iteration
+                if self.session_guard.enforced_cooldown():
+                    remaining = self.session_guard.cooldown_remaining
+                    print(f"[*] FSM: In cooldown, {remaining:.0f}s remaining")
+                    time.sleep(min(self.polling_interval, remaining))
+                    continue
+
                 state = self._read_state()
                 new_state = self._decide_state(state)
                 self._execute_state(new_state, state)
                 self.state = new_state
+
             except Exception as e:
                 print(f"[!] FSM loop error: {e}")
                 self.state = BotState.ERROR
 
-            time.sleep(self.polling_interval)
+            # Randomized polling interval instead of fixed interval
+            jitter = self.anti_detection.jitter(
+                int(self.polling_interval * 1000),
+                variance_pct=0.25
+            )
+            sleep_seconds = jitter / 1000
+            time.sleep(sleep_seconds)
 
     def _read_state(self) -> Optional[dict]:
         """Read current player state from memory."""

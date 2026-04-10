@@ -35,9 +35,18 @@
     "auto_explore": false,
     "auto_evade_tutorial": true
   },
-  "anti_ban": {
-    "randomize_clicks": true,
+  "anti_detection": {
+    "enabled": true,
+    "min_action_delay_ms": 50,
+    "max_action_delay_ms": 500,
+    "min_cycle_delay": 180,
+    "max_cycle_delay": 600,
+    "min_jitter_ms": 10,
+    "max_jitter_ms": 50,
     "max_actions_per_minute": 10,
-    "cooldown_between_cycles": 300
+    "max_consecutive_cycles": 5,
+    "cooldown_after_max": 300,
+    "min_pause_seconds": 30,
+    "max_pause_seconds": 120
   }
 }

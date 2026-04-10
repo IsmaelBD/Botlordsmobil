@@ -1,12 +1,16 @@
 """
 modules/redeemer/bot.py — Gift Code Redeemer
 Redeems gift codes by connecting directly to the game server via TCP.
+Phase 3 Anti-Detection: randomized timing between steps.
 """
 
 import socket
 import time
+import random
 import json
 from pathlib import Path
+
+from core.anti_detection import AntiDetection
 
 
 PACKETS = {
@@ -24,11 +28,16 @@ class RedeemerBot:
         self.host = self._cfg["network"]["gift_server"]["host"]
         self.port = self._cfg["network"]["gift_server"]["port"]
         self.timeout = self._cfg["timing"]["network_timeout"]
+        self.anti_detection = AntiDetection()
 
     def _load_config(self) -> None:
         cfg = Path(__file__).parent.parent.parent / "config" / "settings.json"
         with open(cfg) as f:
             self._cfg = json.load(f)
+
+    def _step_delay(self, min_ms: float = 300, max_ms: float = 800) -> float:
+        """Human-like delay between network steps."""
+        return self.anti_detection.human_delay(min_ms=min_ms, max_ms=max_ms)
 
     def redeem(self, gift_code: str = None) -> bool:
         """Execute the gift code redemption sequence."""
@@ -41,26 +50,27 @@ class RedeemerBot:
                 s.connect((self.host, self.port))
                 print("[+] Connected to game server")
 
-                # Step 1: Version handshake
+                # Step 1: Version handshake with randomized delay
                 print("[*] Sending version handshake...")
                 s.sendall(bytes.fromhex(PACKETS["version"]))
-                time.sleep(0.5)
+                time.sleep(self._step_delay(300, 700))
 
-                # Step 2: Hardware activation
+                # Step 2: Hardware activation with randomized delay
                 print("[*] Sending hardware activation...")
                 s.sendall(bytes.fromhex(PACKETS["activation"]))
-                time.sleep(0.5)
+                time.sleep(self._step_delay(300, 700))
 
-                # Step 3: Session login
+                # Step 3: Session login with randomized delay
                 print("[*] Sending session login...")
                 s.sendall(bytes.fromhex(PACKETS["login"]))
-                time.sleep(1)
+                time.sleep(self._step_delay(600, 1200))
 
                 # Step 4: Redeem gift code (custom per code)
                 print(f"[*] Redeeming: {code}")
                 s.sendall(bytes.fromhex(PACKETS["redeem_1420"]))
 
-                # Wait for response
+                # Wait for response with slight random jitter
+                time.sleep(self._step_delay(500, 1500))
                 resp = s.recv(1024)
                 if resp:
                     print(f"[!] Server response: {resp.hex()}")
@@ -77,11 +87,14 @@ class RedeemerBot:
             return False
 
     def batch_redeem(self, codes: list[str]) -> dict[str, bool]:
-        """Redeem multiple gift codes."""
+        """Redeem multiple gift codes with randomized pauses."""
         results = {}
         for code in codes:
             print(f"\n{'='*40}")
             success = self.redeem(code)
             results[code] = success
-            time.sleep(2)  # Cooldown between codes
+            # Randomized cooldown between codes (30-90 seconds)
+            pause = self.anti_detection.random_cycle_delay()
+            print(f"[*] Pause between codes: {pause:.1f}s")
+            time.sleep(pause)
         return results
