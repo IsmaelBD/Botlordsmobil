@@ -1,0 +1,36 @@
+{
+  "game": {
+    "process_name": "Lords Mobile PC",
+    "assembly_name": "GameAssembly.dll",
+    "module_base_offset": 0x400000
+  },
+  "rvass": {
+    "GET_MP": "0x1D22900",
+    "ADD_SEQ": "0x1D22110",
+    "SEND": "0x1D23440"
+  },
+  "pointers": {
+    "dm_typeinfo": "0x58F5368",
+    "role_attr": {
+      "base": "static_fields_ptr + 0x18",
+      "level": "role_attr + 0x32",
+      "diamond": "role_attr + 0x98",
+      "tutorial_step": "role_attr + 0x80"
+    }
+  },
+  "protocols": {
+    "version": 13000,
+    "hardware_activation": 1024,
+    "login": 1043,
+    "gift_redeem": 1420
+  },
+  "march": {
+    "template_size": 111,
+    "zone_id_offset": 0x52,
+    "point_id_offset": 0x54,
+    "length_offset": 0x18,
+    "protocol_offset": 0x30,
+    "length_value": 111,
+    "protocol_value": 6615
+  }
+}
