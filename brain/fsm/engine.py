@@ -17,6 +17,14 @@ from core.win32.hands import Win32GhostClient
 from core.anti_detection import AntiDetection, SessionGuard
 from utils.analytics import BotAnalytics
 
+# Lazy imports to avoid circular deps
+def _import_module(name: str):
+    import importlib
+    try:
+        return importlib.import_module(name)
+    except ImportError:
+        return None
+
 
 class BotState(Enum):
     IDLE = "idle"
@@ -24,6 +32,11 @@ class BotState(Enum):
     GATHERING = "gathering"
     ATTACKING = "attacking"
     EXPLORING = "exploring"
+    MONSTER_HUNTING = "monster_hunting"
+    CARGO_CLAIMING = "cargo_claiming"
+    GUILD_DUTIES = "guild_duties"
+    QUESTING = "questing"
+    LABYRINTH = "labyrinth"
     WAITING = "waiting"
     ERROR = "error"
 
@@ -152,6 +165,21 @@ class FSMBotEngine:
         if self.features.get("auto_attack") and level >= 5:
             return BotState.ATTACKING
 
+        if self.features.get("auto_monster"):
+            return BotState.MONSTER_HUNTING
+
+        if self.features.get("auto_cargo"):
+            return BotState.CARGO_CLAIMING
+
+        if self.features.get("auto_guild"):
+            return BotState.GUILD_DUTIES
+
+        if self.features.get("auto_quest"):
+            return BotState.QUESTING
+
+        if self.features.get("auto_labyrinth"):
+            return BotState.LABYRINTH
+
         if self.features.get("auto_explore"):
             return BotState.EXPLORING
 
@@ -189,6 +217,51 @@ class FSMBotEngine:
 
         elif state == BotState.EXPLORING:
             print("[EXPLORING] Explorer module not yet connected")
+
+        elif state == BotState.MONSTER_HUNTING:
+            print("[MONSTER_HUNTING] Dispatching monster hunt...")
+            monster_mod = _import_module("modules.monster.bot")
+            if monster_mod:
+                bot = monster_mod.MonsterBot()
+                if bot.verify_ready():
+                    bot.run_cycle()
+                    self.analytics.record_action("monster_hunt", game_state)
+
+        elif state == BotState.CARGO_CLAIMING:
+            print("[CARGO_CLAIMING] Claiming cargo ship...")
+            cargo_mod = _import_module("modules.cargo.bot")
+            if cargo_mod:
+                bot = cargo_mod.CargoBot()
+                if bot.verify_ready():
+                    bot.run_cycle()
+                    self.analytics.record_action("cargo_claim", game_state)
+
+        elif state == BotState.GUILD_DUTIES:
+            print("[GUILD_DUTIES] Performing guild duties...")
+            guild_mod = _import_module("modules.guild.bot")
+            if guild_mod:
+                bot = guild_mod.GuildBot()
+                if bot.verify_ready():
+                    bot.run_cycle()
+                    self.analytics.record_action("guild_duty", game_state)
+
+        elif state == BotState.QUESTING:
+            print("[QUESTING] Completing daily quests...")
+            quester_mod = _import_module("modules.quester.bot")
+            if quester_mod:
+                bot = quester_mod.QuesterBot()
+                if bot.verify_ready():
+                    bot.run_cycle()
+                    self.analytics.record_action("quest_complete", game_state)
+
+        elif state == BotState.LABYRINTH:
+            print("[LABYRINTH] Solving labyrinth...")
+            lab_mod = _import_module("modules.labyrinth.bot")
+            if lab_mod:
+                bot = lab_mod.LabyrinthBot()
+                if bot.verify_ready():
+                    bot.run_cycle()
+                    self.analytics.record_action("labyrinth_solve", game_state)
 
         elif state == BotState.ERROR:
             print("[ERROR] Waiting for recovery...")
