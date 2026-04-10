@@ -35,6 +35,12 @@
     "auto_explore": false,
     "auto_evade_tutorial": true
   },
+  "analytics": {
+    "enabled": true,
+    "snapshot_interval_seconds": 3600,
+    "save_history_days": 30,
+    "report_channels": ["local", "discord"]
+  },
   "anti_detection": {
     "enabled": true,
     "min_action_delay_ms": 50,

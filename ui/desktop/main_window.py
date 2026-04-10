@@ -24,6 +24,8 @@ from modules.attacker.bot import AttackerBot
 from modules.redeemer.bot import RedeemerBot
 from modules.explorer.bot import ExplorerBot
 from brain.fsm.engine import FSMBotEngine
+from utils.analytics import BotAnalytics
+from utils.report_generator import ReportGenerator
 
 
 # ──────────────────────────────────────────────
@@ -743,6 +745,217 @@ class FSMPanel(QWidget):
 
 
 # ──────────────────────────────────────────────
+#  Analytics Panel
+# ──────────────────────────────────────────────
+class AnalyticsPanel(QWidget):
+    """Analytics dashboard showing session stats and historical trends."""
+
+    def __init__(self):
+        super().__init__()
+        self.analytics = BotAnalytics()
+        self.reporter = ReportGenerator(self.analytics)
+        self.init_ui()
+        self.refresh()
+
+        # Auto-refresh timer
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.refresh)
+        self.timer.setInterval(5000)  # Refresh every 5 seconds
+        self.timer.start()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+
+        # Top stats cards
+        cards_layout = QHBoxLayout()
+
+        # Session stats card
+        session_card = QGroupBox("Session Stats")
+        session_layout = QFormLayout(session_card)
+        self.session_duration = QLabel("0h 0m")
+        self.session_resources = QLabel("0")
+        self.session_attacks = QLabel("0")
+        self.session_kills = QLabel("0")
+        session_layout.addRow("Duration:", self.session_duration)
+        session_layout.addRow("Resources:", self.session_resources)
+        session_layout.addRow("Attacks:", self.session_attacks)
+        session_layout.addRow("Kills:", self.session_kills)
+        cards_layout.addWidget(session_card)
+
+        # History stats card
+        history_card = QGroupBox("Historical Stats")
+        history_layout = QFormLayout(history_card)
+        self.history_might = QLabel("0")
+        self.history_peak_might = QLabel("0")
+        self.history_total_kills = QLabel("0")
+        self.history_days = QLabel("0")
+        history_layout.addRow("Current Might:", self.history_might)
+        history_layout.addRow("Peak Might:", self.history_peak_might)
+        history_layout.addRow("Total Kills:", self.history_total_kills)
+        history_layout.addRow("Days Logged:", self.history_days)
+        cards_layout.addWidget(history_card)
+
+        layout.addLayout(cards_layout)
+
+        # Report display
+        report_grp = QGroupBox("Report View")
+        report_layout = QVBoxLayout(report_grp)
+
+        # Report type selector
+        report_type_layout = QHBoxLayout()
+        self.report_type = QComboBox()
+        self.report_type.addItems(["Daily Summary", "Resource Chart", "Attack Log",
+                                    "Might Progress", "Weekly Trends", "Full Report"])
+        self.report_type.currentTextChanged.connect(self.on_report_type_changed)
+        report_type_layout.addWidget(QLabel("Report Type:"))
+        report_type_layout.addWidget(self.report_type)
+        report_type_layout.addStretch()
+        report_layout.addLayout(report_type_layout)
+
+        # Report text
+        self.report_text = QTextEdit()
+        self.report_text.setReadOnly(True)
+        self.report_text.setStyleSheet("background: #0d0d1a; color: #00ff88; font-family: 'Courier New'; font-size: 9pt;")
+        report_layout.addWidget(self.report_text)
+
+        layout.addWidget(report_grp)
+
+        # Action buttons
+        btn_layout = QHBoxLayout()
+
+        self.btn_refresh = QPushButton("🔄 Refresh")
+        self.btn_refresh.clicked.connect(self.refresh)
+        btn_layout.addWidget(self.btn_refresh)
+
+        self.btn_export = QPushButton("📥 Export CSV")
+        self.btn_export.clicked.connect(self.export_csv)
+        btn_layout.addWidget(self.btn_export)
+
+        self.btn_clear_session = QPushButton("🗑️ Clear Session")
+        self.btn_clear_session.clicked.connect(self.clear_session)
+        btn_layout.addWidget(self.btn_clear_session)
+
+        self.btn_clear_history = QPushButton("⚠️ Clear History")
+        self.btn_clear_history.setStyleSheet("QPushButton { color: #ff6b6b; }")
+        self.btn_clear_history.clicked.connect(self.clear_history)
+        btn_layout.addWidget(self.btn_clear_history)
+
+        btn_layout.addStretch()
+        layout.addLayout(btn_layout)
+
+        # Storage info
+        storage_label = QLabel()
+        storage_path = Path.home() / ".lordsbot" / "analytics"
+        storage_label.setText(f"📁 Data stored at: {storage_path}")
+        storage_label.setStyleSheet("color: #888; font-size: 9pt;")
+        layout.addWidget(storage_label)
+
+        layout.addStretch()
+
+    def refresh(self):
+        """Refresh all stats and report."""
+        session_stats = self.analytics.get_session_stats()
+        history_stats = self.analytics.get_history_stats()
+
+        # Update session stats
+        duration = session_stats.get("duration_seconds", 0)
+        hours = int(duration // 3600)
+        minutes = int((duration % 3600) // 60)
+        self.session_duration.setText(f"{hours}h {minutes}m")
+
+        resources = session_stats.get("resources_gathered", {})
+        total_res = sum(resources.values()) if resources else 0
+        self.session_resources.setText(f"{total_res:,}")
+
+        self.session_attacks.setText(str(session_stats.get("total_attacks", 0)))
+        self.session_kills.setText(f"{session_stats.get('total_kills', 0):,}")
+
+        # Update history stats
+        self.history_might.setText(f"{history_stats.get('current_might', 0):,}")
+        self.history_peak_might.setText(f"{history_stats.get('peak_might', 0):,}")
+        self.history_total_kills.setText(f"{history_stats.get('total_kills', 0):,}")
+        self.history_days.setText(str(history_stats.get("days_logged", 0)))
+
+        # Update report
+        self.update_report()
+
+    def on_report_type_changed(self, report_name: str):
+        """Handle report type selection change."""
+        self.update_report()
+
+    def update_report(self):
+        """Generate and display the selected report."""
+        report_type = self.report_type.currentText()
+
+        if report_type == "Daily Summary":
+            report = self.reporter.daily_summary()
+        elif report_type == "Resource Chart":
+            report = self.reporter.resource_chart()
+        elif report_type == "Attack Log":
+            report = self.reporter.attack_log()
+        elif report_type == "Might Progress":
+            report = self.reporter.might_progress()
+        elif report_type == "Weekly Trends":
+            report = self.reporter.weekly_trends()
+        elif report_type == "Full Report":
+            report = self.reporter.full_report()
+        else:
+            report = "Select a report type"
+
+        self.report_text.setPlainText(report)
+
+    def export_csv(self):
+        """Export analytics to CSV file."""
+        default_path = str(Path.home() / ".lordsbot" / "analytics" / "export.csv")
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Export Analytics to CSV",
+            default_path,
+            "CSV Files (*.csv);;All Files (*)"
+        )
+
+        if file_path:
+            result = self.analytics.export_csv(file_path)
+            QMessageBox.information(self, "Export Complete", result)
+
+    def clear_session(self):
+        """Clear current session data."""
+        reply = QMessageBox.question(
+            self, "Clear Session",
+            "Clear all current session data?\nThis cannot be undone.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        if reply == QMessageBox.Yes:
+            self.analytics.clear_session()
+            self.refresh()
+            QMessageBox.information(self, "Cleared", "Session data cleared.")
+
+    def clear_history(self):
+        """Clear all historical data."""
+        reply = QMessageBox.warning(
+            self, "Clear History",
+            "⚠️ WARNING: This will delete ALL historical data.\n\n"
+            "This includes might progression, kill history, and daily summaries.\n"
+            "This action cannot be undone!\n\n"
+            "Are you absolutely sure?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        if reply == QMessageBox.Yes:
+            # Double confirmation
+            reply2 = QMessageBox.warning(
+                self, "Final Confirmation",
+                "Type 'YES' in the next dialog to confirm deletion of all history.",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            if reply2 == QMessageBox.Yes:
+                self.analytics.clear_history()
+                self.refresh()
+                QMessageBox.information(self, "Cleared", "All historical data has been deleted.")
+
+
+# ──────────────────────────────────────────────
 #  Settings Window
 # ──────────────────────────────────────────────
 class SettingsWindow(QWidget):
@@ -956,6 +1169,9 @@ class LordsBotWindow(QMainWindow):
 
         # Tab 7: FSM
         tabs.addTab(FSMPanel(), "🤖 FSM Engine")
+
+        # Tab 8: Analytics
+        tabs.addTab(AnalyticsPanel(), "📊 Analytics")
 
         self.setCentralWidget(tabs)
 
