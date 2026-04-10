@@ -2,7 +2,7 @@
   "game": {
     "process_name": "Lords Mobile PC",
     "assembly_name": "GameAssembly.dll",
-    "module_base_offset": 0x400000
+    "module_base_offset": "0x400000"
   },
   "rvass": {
     "GET_MP": "0x1D22900",
