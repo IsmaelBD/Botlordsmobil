@@ -1,0 +1,43 @@
+{
+  "bot": {
+    "name": "Lords Mobile Bot",
+    "version": "2.0.0",
+    "debug": false,
+    "log_level": "INFO"
+  },
+  "game": {
+    "window_title": "Lords Mobile PC",
+    "resolution": {
+      "width": 1280,
+      "height": 720
+    }
+  },
+  "network": {
+    "server": {
+      "host": "205.252.125.129",
+      "port": 11977
+    },
+    "gift_server": {
+      "host": "205.252.125.129",
+      "port": 11977
+    }
+  },
+  "timing": {
+    "march_wait_seconds": 300,
+    "click_delay_ms": 50,
+    "network_timeout": 5,
+    "polling_interval": 2
+  },
+  "features": {
+    "auto_gather": true,
+    "auto_attack": false,
+    "auto_redeem": false,
+    "auto_explore": false,
+    "auto_evade_tutorial": true
+  },
+  "anti_ban": {
+    "randomize_clicks": true,
+    "max_actions_per_minute": 10,
+    "cooldown_between_cycles": 300
+  }
+}
