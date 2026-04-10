@@ -72,8 +72,13 @@ class PacketInjector:
         self._rva_add_seq = int(self._cfg["rvass"]["ADD_SEQ"], 16)
         self._rva_send = int(self._cfg["rvass"]["SEND"], 16)
 
-    def build_march_shellcode(self, zone_id: int, point_id: int, march_data: bytes) -> bytearray:
-        """Build the complete shellcode for march injection."""
+    def build_march_shellcode(self, zone_id: int, point_id: int, content_addr: int, content_size: int) -> bytearray:
+        """Build the complete shellcode for march injection.
+
+        Args:
+            content_addr: Remote address in game process (allocated via VirtualAllocEx)
+            content_size: Size of the march data in bytes
+        """
         import ctypes
 
         base = self.client["assembly_base"]
@@ -96,13 +101,13 @@ class PacketInjector:
         # Copy march_data using rep movsb
         shellcode.extend(b"\x48\x89\xC1")  # mov rcx, rax (dest)
         shellcode.extend(b"\x48\xBA")  # mov rdx, src
-        shellcode.extend(struct.pack("<Q", id(march_data)))
+        shellcode.extend(struct.pack("<Q", content_addr))  # remote address in game process
         shellcode.extend(b"\x49\xC7\xC0")  # mov r8, len
         shellcode.extend(struct.pack("<I", len(march_data)))
         shellcode.extend(b"\x4D\x89\xC1")  # mov r9, r8
         shellcode.extend(b"\x4C\x89\xC1")  # mov rcx, r8
         shellcode.extend(b"\x48\x8B\xFE")  # mov rdi, rsi
-        shellcode.extend(b"\xB9\x6F\x00\x00\x00")  # rcx = 111
+        shellcode.extend(struct.pack("<I", content_size))  # length of march data
         shellcode.extend(b"\xF3\xA4")  # rep movsb
 
         # Set Length and Protocol
@@ -142,7 +147,7 @@ class PacketInjector:
             bytes(march_data), len(march_data), None
         )
 
-        shellcode = self.build_march_shellcode(zone_id, point_id, march_data)
+        shellcode = self.build_march_shellcode(zone_id, point_id, addr_data, len(march_data))
         addr_shell = ctypes.windll.kernel32.VirtualAllocEx(
             handle, 0, len(shellcode), 0x3000, 0x40
         )
