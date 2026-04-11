@@ -18,7 +18,7 @@ class MemoryRadar:
         self._find_clients()
 
     def _load_process_name(self) -> str:
-        cfg = Path(__file__).parent.parent / "config" / "settings.json"
+        cfg = Path(__file__).parent.parent.parent / "config" / "settings.json"
         with open(cfg) as f:
             return json.load(f)["game"]["window_title"]
 
@@ -129,7 +129,7 @@ class MemoryRadar:
 
     def get_player_state(self, handle, assembly_base: int) -> Optional[dict]:
         """Read player state from game memory."""
-        cfg_path = Path(__file__).parent.parent / "config" / "offsets.json"
+        cfg_path = Path(__file__).parent.parent.parent / "config" / "offsets.json"
         with open(cfg_path) as f:
             cfg = json.load(f)
 

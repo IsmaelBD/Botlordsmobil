@@ -27,12 +27,12 @@ class Win32GhostClient:
             self.human_clicker.set_window(self.hwnd)
 
     def _load_window_title(self) -> str:
-        cfg = Path(__file__).parent.parent / "config" / "settings.json"
+        cfg = Path(__file__).parent.parent.parent / "config" / "settings.json"
         with open(cfg) as f:
             return json.load(f)["game"]["window_title"]
 
     def _load_config(self) -> dict:
-        cfg = Path(__file__).parent.parent / "config" / "settings.json"
+        cfg = Path(__file__).parent.parent.parent / "config" / "settings.json"
         with open(cfg) as f:
             return json.load(f)
 
