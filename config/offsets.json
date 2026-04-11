@@ -1,0 +1,50 @@
+{
+  "game": {
+    "process_name": "Lords Mobile PC",
+    "assembly_name": "GameAssembly.dll",
+    "module_base_offset": "0x400000"
+  },
+  "rvass": {
+    "GET_MP": "0x1D22900",
+    "ADD_SEQ": "0x1D22110",
+    "ADD_US": "0x1D224A0",
+    "NET_SEND": "0x1D28C40"
+  },
+  "pointers": {
+    "dm_typeinfo": "0x58F5368",
+    "role_attr": {
+      "base": "static_fields_ptr + 0x18",
+      "level": "role_attr + 0x32",
+      "diamond": "role_attr + 0x98",
+      "tutorial_step": "role_attr + 0x80"
+    }
+  },
+  "protocols": {
+    "version": 13000,
+    "hardware_activation": 1024,
+    "login": 1043,
+    "gift_redeem": 1420,
+    "troop_march": 6615
+  },
+  "march": {
+    "template_hex": "09000000000000002c0100000000000000000000000000006400000000000000000000000000000064000000000000000000000000000000000000000000000000000000000000fb013b0000000000000000000000000000000000000000000000000000",
+    "header_size": 10,
+    "content_size": 101,
+    "total_size": 111,
+    "zone_id_offset": 72,
+    "point_id_offset": 74,
+    "length_offset": 24,
+    "protocol_offset": 48,
+    "default_zone": 507,
+    "default_point": 59
+  },
+  "packet": {
+    "offsets": {
+      "current_pos": "0x18",
+      "buffer_object": "0x28",
+      "data_object": "0x20",
+      "raw_start": "0x20",
+      "protocol": "0x30"
+    }
+  }
+}

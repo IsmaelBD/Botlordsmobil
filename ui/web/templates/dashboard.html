@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lords Mobile Bot — Dashboard</title>
+    <script src="//cdn.socket.io/4/socket.io.min.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Segoe UI', sans-serif; background: #0f1117; color: #e0e0e0; min-height: 100vh; }
+        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+        h1 { color: #00d4ff; margin-bottom: 20px; }
+        .card { background: #1a1d27; border-radius: 8px; padding: 20px; margin-bottom: 20px; }
+        .card h2 { color: #00d4ff; margin-bottom: 15px; font-size: 1.1rem; }
+        .status-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 15px; }
+        .status-item { background: #252a3a; padding: 12px; border-radius: 6px; }
+        .status-item .label { font-size: 0.75rem; color: #888; text-transform: uppercase; }
+        .status-item .value { font-size: 1.2rem; font-weight: bold; margin-top: 4px; }
+        .status-item .value.active { color: #00ff88; }
+        .status-item .value.inactive { color: #ff4444; }
+        .status-item .value.running { color: #00ff88; }
+        .status-item .value.error { color: #ff8800; }
+        button { background: #00d4ff; color: #0f1117; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: bold; margin: 5px; }
+        button:hover { background: #00b8dd; }
+        button.danger { background: #ff4444; }
+        button.danger:hover { background: #dd2222; }
+        button.success { background: #00ff88; }
+        input { background: #252a3a; border: 1px solid #333; color: #e0e0e0; padding: 10px; border-radius: 6px; width: 100%; margin: 5px 0; }
+        .log { background: #0a0a0f; padding: 15px; border-radius: 6px; font-family: 'Courier New', monospace; font-size: 0.85rem; max-height: 300px; overflow-y: auto; }
+        .log-entry { margin-bottom: 4px; }
+        .log-entry.info { color: #00d4ff; }
+        .log-entry.success { color: #00ff88; }
+        .log-entry.warn { color: #ff8800; }
+        .log-entry.error { color: #ff4444; }
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        @media (max-width: 768px) { .grid-2 { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎮 Lords Mobile Bot — Control Panel</h1>
+
+        <div class="card">
+            <h2>📊 System Status</h2>
+            <div class="status-grid" id="statusGrid">
+                <div class="status-item">
+                    <div class="label">Engine</div>
+                    <div class="value" id="engineStatus">—</div>
+                </div>
+                <div class="status-item">
+                    <div class="label">Current State</div>
+                    <div class="value" id="botState">—</div>
+                </div>
+                <div class="status-item">
+                    <div class="label">Game Detected</div>
+                    <div class="value" id="gameDetected">—</div>
+                </div>
+                <div class="status-item">
+                    <div class="label">Window</div>
+                    <div class="value" id="windowFound">—</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid-2">
+            <div class="card">
+                <h2>⚡ Controls</h2>
+                <button onclick="startEngine()">▶ Start Engine</button>
+                <button class="danger" onclick="stopEngine()">■ Stop Engine</button>
+                <button class="success" onclick="gatherResources()">🚜 Gather Resources</button>
+                <div style="margin-top: 15px;">
+                    <label>Gift Code</label>
+                    <input type="text" id="giftCode" value="LM2026" placeholder="Enter gift code">
+                    <button onclick="redeemCode()">🎁 Redeem Code</button>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>⚙️ Configuration</h2>
+                <label>Auto Gather</label>
+                <input type="checkbox" id="autoGather" checked>
+                <label>Auto Evade Tutorial</label>
+                <input type="checkbox" id="autoEvade" checked>
+                <label>Auto Attack</label>
+                <input type="checkbox" id="autoAttack">
+                <br><br>
+                <button onclick="saveConfig()">💾 Save Config</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>📋 Event Log</h2>
+            <div class="log" id="logContainer">
+                <div class="log-entry info">[SYSTEM] Dashboard loaded</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+
+        socket.on("connect", () => log("Connected to bot server", "info"));
+        socket.on("disconnect", () => log("Disconnected", "warn"));
+        socket.on("status", (data) => updateStatus(data));
+
+        function updateStatus(data) {
+            document.getElementById("engineStatus").textContent = data.running ? "Running" : "Stopped";
+            document.getElementById("engineStatus").className = "value " + (data.running ? "running" : "inactive");
+            document.getElementById("botState").textContent = data.state || "—";
+            document.getElementById("gameDetected").textContent = data.game_detected ? "Yes" : "No";
+            document.getElementById("gameDetected").className = "value " + (data.game_detected ? "active" : "inactive");
+            document.getElementById("windowFound").textContent = data.window_found ? "Yes" : "No";
+            document.getElementById("windowFound").className = "value " + (data.window_found ? "active" : "inactive");
+        }
+
+        function log(msg, type = "info") {
+            const container = document.getElementById("logContainer");
+            const entry = document.createElement("div");
+            entry.className = "log-entry " + type;
+            entry.textContent = "[" + new Date().toLocaleTimeString() + "] " + msg;
+            container.appendChild(entry);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function startEngine() {
+            fetch("/api/start", { method: "POST" })
+                .then(r => r.json())
+                .then(d => { log("Engine started", "success"); setInterval(() => socket.emit("ping"), 2000); })
+                .catch(e => log("Error: " + e, "error"));
+        }
+
+        function stopEngine() {
+            fetch("/api/stop", { method: "POST" })
+                .then(r => r.json())
+                .then(d => log("Engine stopped", "warn"))
+                .catch(e => log("Error: " + e, "error"));
+        }
+
+        function gatherResources() {
+            fetch("/api/gather", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ targets: [[522, 356]] })
+            }).then(r => r.json()).then(d => log("Gather started: " + JSON.stringify(d), "success"));
+        }
+
+        function redeemCode() {
+            const code = document.getElementById("giftCode").value;
+            fetch("/api/redeem", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ code })
+            }).then(r => r.json()).then(d => log("Redeem result: " + JSON.stringify(d), d.success ? "success" : "error"));
+        }
+
+        function saveConfig() {
+            const config = {
+                features: {
+                    auto_gather: document.getElementById("autoGather").checked,
+                    auto_evade_tutorial: document.getElementById("autoEvade").checked,
+                    auto_attack: document.getElementById("autoAttack").checked,
+                }
+            };
+            fetch("/api/config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(config) })
+                .then(r => r.json())
+                .then(d => log("Config saved", "success"));
+        }
+
+        // Poll status on load
+        fetch("/api/status").then(r => r.json()).then(updateStatus);
+        setInterval(() => fetch("/api/status").then(r => r.json()).then(updateStatus), 5000);
+    </script>
+</body>
+</html>

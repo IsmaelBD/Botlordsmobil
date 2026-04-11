@@ -1,0 +1,21 @@
+{
+  "targets": [
+    {
+      "name": "Default Farm",
+      "zone": 507,
+      "point": 59,
+      "type": "gather",
+      "wait": 300
+    }
+  ],
+  "rally_targets": [
+    {
+      "name": "Rally Target Alpha",
+      "zone": 507,
+      "point": 100,
+      "type": "attack",
+      "rally": true,
+      "troops": null
+    }
+  ]
+}

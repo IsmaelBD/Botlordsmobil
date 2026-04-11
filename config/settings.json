@@ -1,0 +1,58 @@
+{
+  "bot": {
+    "name": "Lords Mobile Bot",
+    "version": "2.0.0",
+    "debug": false,
+    "log_level": "INFO"
+  },
+  "game": {
+    "window_title": "Lords Mobile PC",
+    "resolution": {
+      "width": 1280,
+      "height": 720
+    }
+  },
+  "network": {
+    "server": {
+      "host": "205.252.125.129",
+      "port": 11977
+    },
+    "gift_server": {
+      "host": "205.252.125.129",
+      "port": 11977
+    }
+  },
+  "timing": {
+    "march_wait_seconds": 300,
+    "click_delay_ms": 50,
+    "network_timeout": 5,
+    "polling_interval": 2
+  },
+  "features": {
+    "auto_gather": true,
+    "auto_attack": false,
+    "auto_redeem": false,
+    "auto_explore": false,
+    "auto_evade_tutorial": true
+  },
+  "analytics": {
+    "enabled": true,
+    "snapshot_interval_seconds": 3600,
+    "save_history_days": 30,
+    "report_channels": ["local", "discord"]
+  },
+  "anti_detection": {
+    "enabled": true,
+    "min_action_delay_ms": 50,
+    "max_action_delay_ms": 500,
+    "min_cycle_delay": 180,
+    "max_cycle_delay": 600,
+    "min_jitter_ms": 10,
+    "max_jitter_ms": 50,
+    "max_actions_per_minute": 10,
+    "max_consecutive_cycles": 5,
+    "cooldown_after_max": 300,
+    "min_pause_seconds": 30,
+    "max_pause_seconds": 120
+  }
+}
