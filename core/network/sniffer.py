@@ -21,7 +21,7 @@ class PacketSniffer:
         self.socket: Optional[socket.socket] = None
 
     def _load_config(self) -> dict:
-        cfg = Path(__file__).parent.parent / "config" / "settings.json"
+        cfg = Path(__file__).parent.parent.parent / "config" / "settings.json"
         with open(cfg) as f:
             return json.load(f)
 
@@ -42,7 +42,7 @@ class PacketSniffer:
             return None
 
     def send_version(self) -> bool:
-        cfg_path = Path(__file__).parent.parent / "config" / "offsets.json"
+        cfg_path = Path(__file__).parent.parent.parent / "config" / "offsets.json"
         with open(cfg_path) as f:
             cfg = json.load(f)
         proto = cfg["protocols"]["version"]
@@ -64,7 +64,7 @@ class PacketInjector:
         self._load_offsets()
 
     def _load_offsets(self) -> None:
-        cfg_path = Path(__file__).parent.parent / "config" / "offsets.json"
+        cfg_path = Path(__file__).parent.parent.parent / "config" / "offsets.json"
         with open(cfg_path) as f:
             self._cfg = json.load(f)
 
