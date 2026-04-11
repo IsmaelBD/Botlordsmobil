@@ -23,7 +23,14 @@ from modules.gatherer.bot import GathererBot
 from modules.attacker.bot import AttackerBot
 from modules.redeemer.bot import RedeemerBot
 from modules.explorer.bot import ExplorerBot
+from modules.monster.bot import MonsterBot
+from modules.cargo.bot import CargoBot
+from modules.guild.bot import GuildBot
+from modules.quester.bot import QuesterBot
+from modules.labyrinth.bot import LabyrinthBot
 from brain.fsm.engine import FSMBotEngine
+from utils.analytics import BotAnalytics
+from utils.report_generator import ReportGenerator
 
 
 # ──────────────────────────────────────────────
@@ -743,6 +750,697 @@ class FSMPanel(QWidget):
 
 
 # ──────────────────────────────────────────────
+#  Monster Panel
+# ──────────────────────────────────────────────
+class MonsterPanel(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.bot = None
+        self.worker = None
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+
+        enable_grp = QGroupBox("Enable Monster Hunting")
+        enable_layout = QHBoxLayout(enable_grp)
+        self.enable_cb = QCheckBox("Enable Monster Bot")
+        self.enable_cb.setStyleSheet("font-size: 12pt;")
+        enable_layout.addWidget(self.enable_cb)
+        layout.addWidget(enable_grp)
+
+        settings_grp = QGroupBox("Hunt Settings")
+        form = QFormLayout(settings_grp)
+
+        self.zone_id = QSpinBox()
+        self.zone_id.setRange(1, 9999)
+        self.zone_id.setValue(101)
+        form.addRow("Zone ID:", self.zone_id)
+
+        self.point_id = QSpinBox()
+        self.point_id.setRange(1, 255)
+        self.point_id.setValue(12)
+        form.addRow("Point ID:", self.point_id)
+
+        self.monster_level = QSpinBox()
+        self.monster_level.setRange(1, 10)
+        self.monster_level.setValue(5)
+        form.addRow("Max Monster Level:", self.monster_level)
+
+        self.loop_cb = QCheckBox("Loop indefinitely")
+        self.loop_cb.setChecked(True)
+        form.addRow("Loop:", self.loop_cb)
+
+        layout.addWidget(settings_grp)
+
+        btn_layout = QHBoxLayout()
+        self.btn_start = QPushButton("🐉 Hunt", objectName="primary")
+        self.btn_start.setStyleSheet("QPushButton#primary { background: #e94560; }")
+        self.btn_start.clicked.connect(self.start_hunt)
+        self.btn_stop = QPushButton("■ Stop")
+        self.btn_stop.setEnabled(False)
+        self.btn_stop.clicked.connect(self.stop_hunt)
+        btn_layout.addWidget(self.btn_start)
+        btn_layout.addWidget(self.btn_stop)
+        btn_layout.addStretch()
+        layout.addLayout(btn_layout)
+
+        self.log = QTextEdit()
+        self.log.setMaximumHeight(150)
+        self.log.setReadOnly(True)
+        layout.addWidget(QLabel("<b>Hunt Log</b>"))
+        layout.addWidget(self.log)
+        layout.addStretch()
+
+    def log_msg(self, msg):
+        self.log.append(msg)
+
+    def start_hunt(self):
+        self.log_msg("[*] Initializing monster bot...")
+        self.bot = MonsterBot()
+        if not self.bot.verify_ready():
+            self.log_msg("[!] Game not detected.")
+            return
+
+        zone = self.zone_id.value()
+        point = self.point_id.value()
+        level = self.monster_level.value()
+
+        self.btn_start.setEnabled(False)
+        self.btn_stop.setEnabled(True)
+        self.log_msg(f"[*] Hunting zone={zone}, point={point}, max_level={level}")
+
+        def task():
+            return self.bot.hunt(zone, point, level)
+
+        self.worker = BotWorker(task)
+        self.worker.log_signal.connect(self.log_msg)
+        self.worker.finished_signal.connect(self.on_finished)
+        self.worker.start()
+
+    def stop_hunt(self):
+        if self.worker:
+            self.worker.terminate()
+            self.log_msg("[*] Hunt stopped")
+        self.on_finished()
+
+    def on_finished(self):
+        self.btn_start.setEnabled(True)
+        self.btn_stop.setEnabled(False)
+
+
+# ──────────────────────────────────────────────
+#  Cargo Panel
+# ──────────────────────────────────────────────
+class CargoPanel(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.bot = None
+        self.worker = None
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+
+        enable_grp = QGroupBox("Enable Cargo Ship")
+        enable_layout = QHBoxLayout(enable_grp)
+        self.enable_cb = QCheckBox("Enable Cargo Bot")
+        self.enable_cb.setStyleSheet("font-size: 12pt;")
+        enable_layout.addWidget(self.enable_cb)
+        layout.addWidget(enable_grp)
+
+        settings_grp = QGroupBox("Cargo Settings")
+        form = QFormLayout(settings_grp)
+
+        self.refresh_interval = QSpinBox()
+        self.refresh_interval.setRange(60, 3600)
+        self.refresh_interval.setValue(300)
+        form.addRow("Refresh Interval (s):", self.refresh_interval)
+
+        self.auto_refresh_cb = QCheckBox("Auto-refresh")
+        self.auto_refresh_cb.setChecked(True)
+        form.addRow("Auto Refresh:", self.auto_refresh_cb)
+
+        self.loop_cb = QCheckBox("Loop indefinitely")
+        self.loop_cb.setChecked(True)
+        form.addRow("Loop:", self.loop_cb)
+
+        layout.addWidget(settings_grp)
+
+        btn_layout = QHBoxLayout()
+        self.btn_start = QPushButton("📦 Claim Cargo", objectName="primary")
+        self.btn_start.setStyleSheet("QPushButton#primary { background: #e94560; }")
+        self.btn_start.clicked.connect(self.start_claim)
+        self.btn_stop = QPushButton("■ Stop")
+        self.btn_stop.setEnabled(False)
+        self.btn_stop.clicked.connect(self.stop_claim)
+        btn_layout.addWidget(self.btn_start)
+        btn_layout.addWidget(self.btn_stop)
+        btn_layout.addStretch()
+        layout.addLayout(btn_layout)
+
+        self.log = QTextEdit()
+        self.log.setMaximumHeight(150)
+        self.log.setReadOnly(True)
+        layout.addWidget(QLabel("<b>Cargo Log</b>"))
+        layout.addWidget(self.log)
+        layout.addStretch()
+
+    def log_msg(self, msg):
+        self.log.append(msg)
+
+    def start_claim(self):
+        self.log_msg("[*] Initializing cargo bot...")
+        self.bot = CargoBot()
+        if not self.bot.verify_ready():
+            self.log_msg("[!] Game not detected.")
+            return
+
+        self.btn_start.setEnabled(False)
+        self.btn_stop.setEnabled(True)
+        self.log_msg(f"[*] Claiming cargo (interval={self.refresh_interval.value()}s)")
+
+        def task():
+            return self.bot.claim_cargo()
+
+        self.worker = BotWorker(task)
+        self.worker.log_signal.connect(self.log_msg)
+        self.worker.finished_signal.connect(self.on_finished)
+        self.worker.start()
+
+    def stop_claim(self):
+        if self.worker:
+            self.worker.terminate()
+            self.log_msg("[*] Cargo claim stopped")
+        self.on_finished()
+
+    def on_finished(self):
+        self.btn_start.setEnabled(True)
+        self.btn_stop.setEnabled(False)
+
+
+# ──────────────────────────────────────────────
+#  Guild Panel
+# ──────────────────────────────────────────────
+class GuildPanel(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.bot = None
+        self.worker = None
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+
+        enable_grp = QGroupBox("Enable Guild Duties")
+        enable_layout = QHBoxLayout(enable_grp)
+        self.enable_cb = QCheckBox("Enable Guild Bot")
+        self.enable_cb.setStyleSheet("font-size: 12pt;")
+        enable_layout.addWidget(self.enable_cb)
+        layout.addWidget(enable_grp)
+
+        settings_grp = QGroupBox("Guild Settings")
+        form = QFormLayout(settings_grp)
+
+        self.claim_gifts_cb = QCheckBox("Auto-claim gifts")
+        self.claim_gifts_cb.setChecked(True)
+        form.addRow("Claim Gifts:", self.claim_gifts_cb)
+
+        self.auto_donate_cb = QCheckBox("Auto-donate to bank")
+        self.auto_donate_cb.setChecked(True)
+        form.addRow("Donate:", self.auto_donate_cb)
+
+        self.food_limit = QSpinBox()
+        self.food_limit.setRange(0, 1000000)
+        self.food_limit.setValue(10000)
+        form.addRow("Food Limit:", self.food_limit)
+
+        self.wood_limit = QSpinBox()
+        self.wood_limit.setRange(0, 1000000)
+        self.wood_limit.setValue(10000)
+        form.addRow("Wood Limit:", self.wood_limit)
+
+        self.stone_limit = QSpinBox()
+        self.stone_limit.setRange(0, 1000000)
+        self.stone_limit.setValue(10000)
+        form.addRow("Stone Limit:", self.stone_limit)
+
+        self.gold_limit = QSpinBox()
+        self.gold_limit.setRange(0, 1000000)
+        self.gold_limit.setValue(5000)
+        form.addRow("Gold Limit:", self.gold_limit)
+
+        layout.addWidget(settings_grp)
+
+        btn_layout = QHBoxLayout()
+        self.btn_start = QPushButton("🏰 Do Guild Duties", objectName="primary")
+        self.btn_start.setStyleSheet("QPushButton#primary { background: #e94560; }")
+        self.btn_start.clicked.connect(self.start_guild)
+        self.btn_stop = QPushButton("■ Stop")
+        self.btn_stop.setEnabled(False)
+        self.btn_stop.clicked.connect(self.stop_guild)
+        btn_layout.addWidget(self.btn_start)
+        btn_layout.addWidget(self.btn_stop)
+        btn_layout.addStretch()
+        layout.addLayout(btn_layout)
+
+        self.log = QTextEdit()
+        self.log.setMaximumHeight(150)
+        self.log.setReadOnly(True)
+        layout.addWidget(QLabel("<b>Guild Log</b>"))
+        layout.addWidget(self.log)
+        layout.addStretch()
+
+    def log_msg(self, msg):
+        self.log.append(msg)
+
+    def start_guild(self):
+        self.log_msg("[*] Initializing guild bot...")
+        self.bot = GuildBot()
+        if not self.bot.verify_ready():
+            self.log_msg("[!] Game not detected.")
+            return
+
+        self.btn_start.setEnabled(False)
+        self.btn_stop.setEnabled(True)
+        self.log_msg("[*] Starting guild duties...")
+
+        def task():
+            return self.bot.run_cycle()
+
+        self.worker = BotWorker(task)
+        self.worker.log_signal.connect(self.log_msg)
+        self.worker.finished_signal.connect(self.on_finished)
+        self.worker.start()
+
+    def stop_guild(self):
+        if self.worker:
+            self.worker.terminate()
+            self.log_msg("[*] Guild duties stopped")
+        self.on_finished()
+
+    def on_finished(self):
+        self.btn_start.setEnabled(True)
+        self.btn_stop.setEnabled(False)
+
+
+# ──────────────────────────────────────────────
+#  Quester Panel
+# ──────────────────────────────────────────────
+class QuesterPanel(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.bot = None
+        self.worker = None
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+
+        enable_grp = QGroupBox("Enable Quest Automation")
+        enable_layout = QHBoxLayout(enable_grp)
+        self.enable_cb = QCheckBox("Enable Quester Bot")
+        self.enable_cb.setStyleSheet("font-size: 12pt;")
+        enable_layout.addWidget(self.enable_cb)
+        layout.addWidget(enable_grp)
+
+        settings_grp = QGroupBox("Quest Settings")
+        form = QFormLayout(settings_grp)
+
+        self.max_quests = QSpinBox()
+        self.max_quests.setRange(1, 20)
+        self.max_quests.setValue(5)
+        form.addRow("Max Quests/Cycle:", self.max_quests)
+
+        self.loop_cb = QCheckBox("Loop indefinitely")
+        self.loop_cb.setChecked(True)
+        form.addRow("Loop:", self.loop_cb)
+
+        layout.addWidget(settings_grp)
+
+        btn_layout = QHBoxLayout()
+        self.btn_start = QPushButton("📋 Complete Quests", objectName="primary")
+        self.btn_start.setStyleSheet("QPushButton#primary { background: #e94560; }")
+        self.btn_start.clicked.connect(self.start_quests)
+        self.btn_stop = QPushButton("■ Stop")
+        self.btn_stop.setEnabled(False)
+        self.btn_stop.clicked.connect(self.stop_quests)
+        btn_layout.addWidget(self.btn_start)
+        btn_layout.addWidget(self.btn_stop)
+        btn_layout.addStretch()
+        layout.addLayout(btn_layout)
+
+        self.log = QTextEdit()
+        self.log.setMaximumHeight(150)
+        self.log.setReadOnly(True)
+        layout.addWidget(QLabel("<b>Quest Log</b>"))
+        layout.addWidget(self.log)
+        layout.addStretch()
+
+    def log_msg(self, msg):
+        self.log.append(msg)
+
+    def start_quests(self):
+        self.log_msg("[*] Initializing quester bot...")
+        self.bot = QuesterBot()
+        if not self.bot.verify_ready():
+            self.log_msg("[!] Game not detected.")
+            return
+
+        self.btn_start.setEnabled(False)
+        self.btn_stop.setEnabled(True)
+        self.log_msg(f"[*] Completing up to {self.max_quests.value()} quests...")
+
+        def task():
+            return self.bot.run_cycle()
+
+        self.worker = BotWorker(task)
+        self.worker.log_signal.connect(self.log_msg)
+        self.worker.finished_signal.connect(self.on_finished)
+        self.worker.start()
+
+    def stop_quests(self):
+        if self.worker:
+            self.worker.terminate()
+            self.log_msg("[*] Questing stopped")
+        self.on_finished()
+
+    def on_finished(self):
+        self.btn_start.setEnabled(True)
+        self.btn_stop.setEnabled(False)
+
+
+# ──────────────────────────────────────────────
+#  Labyrinth Panel
+# ──────────────────────────────────────────────
+class LabyrinthPanel(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.bot = None
+        self.worker = None
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+
+        enable_grp = QGroupBox("Enable Labyrinth Solver")
+        enable_layout = QHBoxLayout(enable_grp)
+        self.enable_cb = QCheckBox("Enable Labyrinth Bot")
+        self.enable_cb.setStyleSheet("font-size: 12pt;")
+        enable_layout.addWidget(self.enable_cb)
+        layout.addWidget(enable_grp)
+
+        settings_grp = QGroupBox("Labyrinth Settings")
+        form = QFormLayout(settings_grp)
+
+        self.labyrinth_size = QSpinBox()
+        self.labyrinth_size.setRange(3, 15)
+        self.labyrinth_size.setValue(7)
+        form.addRow("Labyrinth Size:", self.labyrinth_size)
+
+        self.goal_x = QSpinBox()
+        self.goal_x.setRange(0, 14)
+        self.goal_x.setValue(6)
+        form.addRow("Goal X:", self.goal_x)
+
+        self.goal_y = QSpinBox()
+        self.goal_y.setRange(0, 14)
+        self.goal_y.setValue(6)
+        form.addRow("Goal Y:", self.goal_y)
+
+        self.loop_cb = QCheckBox("Loop indefinitely")
+        self.loop_cb.setChecked(False)
+        form.addRow("Loop:", self.loop_cb)
+
+        layout.addWidget(settings_grp)
+
+        btn_layout = QHBoxLayout()
+        self.btn_start = QPushButton("🌀 Solve Labyrinth", objectName="primary")
+        self.btn_start.setStyleSheet("QPushButton#primary { background: #e94560; }")
+        self.btn_start.clicked.connect(self.start_labyrinth)
+        self.btn_stop = QPushButton("■ Stop")
+        self.btn_stop.setEnabled(False)
+        self.btn_stop.clicked.connect(self.stop_labyrinth)
+        btn_layout.addWidget(self.btn_start)
+        btn_layout.addWidget(self.btn_stop)
+        btn_layout.addStretch()
+        layout.addLayout(btn_layout)
+
+        self.log = QTextEdit()
+        self.log.setMaximumHeight(150)
+        self.log.setReadOnly(True)
+        layout.addWidget(QLabel("<b>Labyrinth Log</b>"))
+        layout.addWidget(self.log)
+        layout.addStretch()
+
+    def log_msg(self, msg):
+        self.log.append(msg)
+
+    def start_labyrinth(self):
+        self.log_msg("[*] Initializing labyrinth bot...")
+        self.bot = LabyrinthBot()
+        if not self.bot.verify_ready():
+            self.log_msg("[!] Game not detected.")
+            return
+
+        self.btn_start.setEnabled(False)
+        self.btn_stop.setEnabled(True)
+        self.log_msg(f"[*] Solving labyrinth (size={self.labyrinth_size.value()})...")
+
+        def task():
+            self.bot.labyrinth_size = self.labyrinth_size.value()
+            self.bot.goal_pos = (self.goal_x.value(), self.goal_y.value())
+            self.bot.solve_path()
+            return self.bot.follow_path()
+
+        self.worker = BotWorker(task)
+        self.worker.log_signal.connect(self.log_msg)
+        self.worker.finished_signal.connect(self.on_finished)
+        self.worker.start()
+
+    def stop_labyrinth(self):
+        if self.worker:
+            self.worker.terminate()
+            self.log_msg("[*] Labyrinth solving stopped")
+        self.on_finished()
+
+    def on_finished(self):
+        self.btn_start.setEnabled(True)
+        self.btn_stop.setEnabled(False)
+
+
+# ──────────────────────────────────────────────
+#  Analytics Panel
+# ──────────────────────────────────────────────
+class AnalyticsPanel(QWidget):
+    """Analytics dashboard showing session stats and historical trends."""
+
+    def __init__(self):
+        super().__init__()
+        self.analytics = BotAnalytics()
+        self.reporter = ReportGenerator(self.analytics)
+        self.init_ui()
+        self.refresh()
+
+        # Auto-refresh timer
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.refresh)
+        self.timer.setInterval(5000)  # Refresh every 5 seconds
+        self.timer.start()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+
+        # Top stats cards
+        cards_layout = QHBoxLayout()
+
+        # Session stats card
+        session_card = QGroupBox("Session Stats")
+        session_layout = QFormLayout(session_card)
+        self.session_duration = QLabel("0h 0m")
+        self.session_resources = QLabel("0")
+        self.session_attacks = QLabel("0")
+        self.session_kills = QLabel("0")
+        session_layout.addRow("Duration:", self.session_duration)
+        session_layout.addRow("Resources:", self.session_resources)
+        session_layout.addRow("Attacks:", self.session_attacks)
+        session_layout.addRow("Kills:", self.session_kills)
+        cards_layout.addWidget(session_card)
+
+        # History stats card
+        history_card = QGroupBox("Historical Stats")
+        history_layout = QFormLayout(history_card)
+        self.history_might = QLabel("0")
+        self.history_peak_might = QLabel("0")
+        self.history_total_kills = QLabel("0")
+        self.history_days = QLabel("0")
+        history_layout.addRow("Current Might:", self.history_might)
+        history_layout.addRow("Peak Might:", self.history_peak_might)
+        history_layout.addRow("Total Kills:", self.history_total_kills)
+        history_layout.addRow("Days Logged:", self.history_days)
+        cards_layout.addWidget(history_card)
+
+        layout.addLayout(cards_layout)
+
+        # Report display
+        report_grp = QGroupBox("Report View")
+        report_layout = QVBoxLayout(report_grp)
+
+        # Report type selector
+        report_type_layout = QHBoxLayout()
+        self.report_type = QComboBox()
+        self.report_type.addItems(["Daily Summary", "Resource Chart", "Attack Log",
+                                    "Might Progress", "Weekly Trends", "Full Report"])
+        self.report_type.currentTextChanged.connect(self.on_report_type_changed)
+        report_type_layout.addWidget(QLabel("Report Type:"))
+        report_type_layout.addWidget(self.report_type)
+        report_type_layout.addStretch()
+        report_layout.addLayout(report_type_layout)
+
+        # Report text
+        self.report_text = QTextEdit()
+        self.report_text.setReadOnly(True)
+        self.report_text.setStyleSheet("background: #0d0d1a; color: #00ff88; font-family: 'Courier New'; font-size: 9pt;")
+        report_layout.addWidget(self.report_text)
+
+        layout.addWidget(report_grp)
+
+        # Action buttons
+        btn_layout = QHBoxLayout()
+
+        self.btn_refresh = QPushButton("🔄 Refresh")
+        self.btn_refresh.clicked.connect(self.refresh)
+        btn_layout.addWidget(self.btn_refresh)
+
+        self.btn_export = QPushButton("📥 Export CSV")
+        self.btn_export.clicked.connect(self.export_csv)
+        btn_layout.addWidget(self.btn_export)
+
+        self.btn_clear_session = QPushButton("🗑️ Clear Session")
+        self.btn_clear_session.clicked.connect(self.clear_session)
+        btn_layout.addWidget(self.btn_clear_session)
+
+        self.btn_clear_history = QPushButton("⚠️ Clear History")
+        self.btn_clear_history.setStyleSheet("QPushButton { color: #ff6b6b; }")
+        self.btn_clear_history.clicked.connect(self.clear_history)
+        btn_layout.addWidget(self.btn_clear_history)
+
+        btn_layout.addStretch()
+        layout.addLayout(btn_layout)
+
+        # Storage info
+        storage_label = QLabel()
+        storage_path = Path.home() / ".lordsbot" / "analytics"
+        storage_label.setText(f"📁 Data stored at: {storage_path}")
+        storage_label.setStyleSheet("color: #888; font-size: 9pt;")
+        layout.addWidget(storage_label)
+
+        layout.addStretch()
+
+    def refresh(self):
+        """Refresh all stats and report."""
+        session_stats = self.analytics.get_session_stats()
+        history_stats = self.analytics.get_history_stats()
+
+        # Update session stats
+        duration = session_stats.get("duration_seconds", 0)
+        hours = int(duration // 3600)
+        minutes = int((duration % 3600) // 60)
+        self.session_duration.setText(f"{hours}h {minutes}m")
+
+        resources = session_stats.get("resources_gathered", {})
+        total_res = sum(resources.values()) if resources else 0
+        self.session_resources.setText(f"{total_res:,}")
+
+        self.session_attacks.setText(str(session_stats.get("total_attacks", 0)))
+        self.session_kills.setText(f"{session_stats.get('total_kills', 0):,}")
+
+        # Update history stats
+        self.history_might.setText(f"{history_stats.get('current_might', 0):,}")
+        self.history_peak_might.setText(f"{history_stats.get('peak_might', 0):,}")
+        self.history_total_kills.setText(f"{history_stats.get('total_kills', 0):,}")
+        self.history_days.setText(str(history_stats.get("days_logged", 0)))
+
+        # Update report
+        self.update_report()
+
+    def on_report_type_changed(self, report_name: str):
+        """Handle report type selection change."""
+        self.update_report()
+
+    def update_report(self):
+        """Generate and display the selected report."""
+        report_type = self.report_type.currentText()
+
+        if report_type == "Daily Summary":
+            report = self.reporter.daily_summary()
+        elif report_type == "Resource Chart":
+            report = self.reporter.resource_chart()
+        elif report_type == "Attack Log":
+            report = self.reporter.attack_log()
+        elif report_type == "Might Progress":
+            report = self.reporter.might_progress()
+        elif report_type == "Weekly Trends":
+            report = self.reporter.weekly_trends()
+        elif report_type == "Full Report":
+            report = self.reporter.full_report()
+        else:
+            report = "Select a report type"
+
+        self.report_text.setPlainText(report)
+
+    def export_csv(self):
+        """Export analytics to CSV file."""
+        default_path = str(Path.home() / ".lordsbot" / "analytics" / "export.csv")
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Export Analytics to CSV",
+            default_path,
+            "CSV Files (*.csv);;All Files (*)"
+        )
+
+        if file_path:
+            result = self.analytics.export_csv(file_path)
+            QMessageBox.information(self, "Export Complete", result)
+
+    def clear_session(self):
+        """Clear current session data."""
+        reply = QMessageBox.question(
+            self, "Clear Session",
+            "Clear all current session data?\nThis cannot be undone.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        if reply == QMessageBox.Yes:
+            self.analytics.clear_session()
+            self.refresh()
+            QMessageBox.information(self, "Cleared", "Session data cleared.")
+
+    def clear_history(self):
+        """Clear all historical data."""
+        reply = QMessageBox.warning(
+            self, "Clear History",
+            "⚠️ WARNING: This will delete ALL historical data.\n\n"
+            "This includes might progression, kill history, and daily summaries.\n"
+            "This action cannot be undone!\n\n"
+            "Are you absolutely sure?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        if reply == QMessageBox.Yes:
+            # Double confirmation
+            reply2 = QMessageBox.warning(
+                self, "Final Confirmation",
+                "Type 'YES' in the next dialog to confirm deletion of all history.",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            if reply2 == QMessageBox.Yes:
+                self.analytics.clear_history()
+                self.refresh()
+                QMessageBox.information(self, "Cleared", "All historical data has been deleted.")
+
+
+# ──────────────────────────────────────────────
 #  Settings Window
 # ──────────────────────────────────────────────
 class SettingsWindow(QWidget):
@@ -954,8 +1652,26 @@ class LordsBotWindow(QMainWindow):
         # Tab 6: Explorer
         tabs.addTab(ExplorerPanel(), "🗺️ Explorer")
 
-        # Tab 7: FSM
+        # Tab 7: Monster
+        tabs.addTab(MonsterPanel(), "🐉 Monster")
+
+        # Tab 8: Cargo
+        tabs.addTab(CargoPanel(), "📦 Cargo")
+
+        # Tab 9: Guild
+        tabs.addTab(GuildPanel(), "🏰 Guild")
+
+        # Tab 10: Quester
+        tabs.addTab(QuesterPanel(), "📋 Quester")
+
+        # Tab 11: Labyrinth
+        tabs.addTab(LabyrinthPanel(), "🌀 Labyrinth")
+
+        # Tab 12: FSM
         tabs.addTab(FSMPanel(), "🤖 FSM Engine")
+
+        # Tab 13: Analytics
+        tabs.addTab(AnalyticsPanel(), "📊 Analytics")
 
         self.setCentralWidget(tabs)
 

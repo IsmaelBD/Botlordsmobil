@@ -1,12 +1,18 @@
 """
 modules/redeemer/bot.py — Gift Code Redeemer
 Redeems gift codes by connecting directly to the game server via TCP.
+Phase 3 Anti-Detection: randomized timing between steps.
+Phase 5: Robust logging, retry with backoff, server rejection detection.
 """
 
 import socket
 import time
+import random
 import json
 from pathlib import Path
+
+from core.anti_detection import AntiDetection
+from utils.logger import get_logger, ServerResponse
 
 
 PACKETS = {
@@ -19,69 +25,203 @@ PACKETS = {
 
 class RedeemerBot:
     def __init__(self, gift_code: str = None):
+        self.logger = get_logger("lordsbot.redeemer")
         self._load_config()
         self.gift_code = gift_code or "LM2026"
         self.host = self._cfg["network"]["gift_server"]["host"]
         self.port = self._cfg["network"]["gift_server"]["port"]
         self.timeout = self._cfg["timing"]["network_timeout"]
+        self.anti_detection = AntiDetection()
+        self.logger.info(f"RedeemerBot initialized — server={self.host}:{self.port}")
 
     def _load_config(self) -> None:
         cfg = Path(__file__).parent.parent.parent / "config" / "settings.json"
         with open(cfg) as f:
             self._cfg = json.load(f)
 
-    def redeem(self, gift_code: str = None) -> bool:
-        """Execute the gift code redemption sequence."""
-        code = gift_code or self.gift_code
-        print(f"[*] Redeeming gift code: {code}")
+    def _step_delay(self, min_ms: float = 300, max_ms: float = 800) -> float:
+        """Human-like delay between network steps."""
+        return self.anti_detection.human_delay(min_ms=min_ms, max_ms=max_ms)
 
+    def _connect_and_send(self, steps: list[tuple[str, str]]) -> tuple[bool, str]:
+        """
+        Connect to server and send a sequence of packets.
+        
+        Args:
+            steps: List of (packet_name, packet_hex) tuples to send in order
+            
+        Returns:
+            Tuple of (had_response, response_hex)
+        """
+        response_hex = None
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.settimeout(self.timeout)
                 s.connect((self.host, self.port))
-                print("[+] Connected to game server")
+                self.logger.info("Connected to game server")
 
-                # Step 1: Version handshake
-                print("[*] Sending version handshake...")
-                s.sendall(bytes.fromhex(PACKETS["version"]))
-                time.sleep(0.5)
+                for step_name, packet_hex in steps:
+                    self.logger.packet_sent(packet_hex, {"step": step_name})
+                    s.sendall(bytes.fromhex(packet_hex))
+                    time.sleep(self._step_delay())
 
-                # Step 2: Hardware activation
-                print("[*] Sending hardware activation...")
-                s.sendall(bytes.fromhex(PACKETS["activation"]))
-                time.sleep(0.5)
-
-                # Step 3: Session login
-                print("[*] Sending session login...")
-                s.sendall(bytes.fromhex(PACKETS["login"]))
-                time.sleep(1)
-
-                # Step 4: Redeem gift code (custom per code)
-                print(f"[*] Redeeming: {code}")
-                s.sendall(bytes.fromhex(PACKETS["redeem_1420"]))
-
-                # Wait for response
+                # Wait for final response
+                time.sleep(self._step_delay(min_ms=500, max_ms=1500))
                 resp = s.recv(1024)
+                
                 if resp:
-                    print(f"[!] Server response: {resp.hex()}")
-                    return True
+                    response_hex = resp.hex()
+                    self.logger.packet_received(response_hex)
+                    return True, response_hex
                 else:
-                    print("[+] No response (gift already redeemed or success)")
-                    return True
+                    self.logger.warning("No response from server")
+                    return False, None
 
         except socket.timeout:
-            print("[!] Connection timeout — server may be busy")
-            return False
+            self.logger.error("Connection timeout — server may be busy")
+            return False, None
+        except ConnectionRefusedError:
+            self.logger.error("Connection refused — server may be down")
+            return False, None
+        except OSError as e:
+            self.logger.error(f"Network OS error: {e}")
+            return False, None
         except Exception as e:
-            print(f"[!] Redeem error: {e}")
-            return False
+            self.logger.error(f"Redeem error: {type(e).__name__}: {e}")
+            return False, None
 
-    def batch_redeem(self, codes: list[str]) -> dict[str, bool]:
-        """Redeem multiple gift codes."""
+    def redeem(self, gift_code: str = None,
+               max_retries: int = 3,
+               base_delay: float = 5.0) -> dict:
+        """
+        Execute the gift code redemption sequence with retry logic.
+
+        Returns:
+            dict with keys: success (bool), attempts (int), response (str),
+                           response_type (ServerResponse), error (str)
+        """
+        code = gift_code or self.gift_code
+        self.logger.info(f"Redeeming gift code: {code}")
+
+        steps = [
+            ("version", PACKETS["version"]),
+            ("activation", PACKETS["activation"]),
+            ("login", PACKETS["login"]),
+            ("redeem_1420", PACKETS["redeem_1420"]),
+        ]
+
+        # Retry with exponential backoff
+        delay = base_delay
+        last_response = None
+        last_response_type = ServerResponse.UNKNOWN
+
+        for attempt in range(1, max_retries + 1):
+            self.logger.info(f"Redemption attempt {attempt}/{max_retries} for code={code}")
+
+            had_response, response_hex = self._connect_and_send(steps)
+            last_response = response_hex
+
+            if response_hex:
+                response_type = self.logger.analyze_response(response_hex)
+                last_response_type = response_type
+
+                if response_type == ServerResponse.ACK:
+                    self.logger.info(f"Redemption successful: code={code}")
+                    return {
+                        "success": True,
+                        "attempts": attempt,
+                        "response": response_hex,
+                        "response_type": response_type.name,
+                        "error": None
+                    }
+
+                elif response_type == ServerResponse.REJECTED:
+                    self.logger.warning(
+                        f"Server rejected redemption (attempt {attempt}/{max_retries})"
+                    )
+                    # Don't retry on rejection — server won't accept this code
+                    return {
+                        "success": False,
+                        "attempts": attempt,
+                        "response": response_hex,
+                        "response_type": response_type.name,
+                        "error": "Server rejected the gift code"
+                    }
+
+                elif response_type == ServerResponse.RATE_LIMITED:
+                    self.logger.warning(
+                        f"Rate limited by server (attempt {attempt}/{max_retries})"
+                    )
+                    if attempt < max_retries:
+                        self.logger.info(f"Waiting {delay:.1f}s before retry...")
+                        time.sleep(delay)
+                        delay = min(delay * 2, 120.0)
+                    continue
+
+                elif response_type == ServerResponse.TIMEOUT:
+                    self.logger.warning(
+                        f"Server timeout (attempt {attempt}/{max_retries})"
+                    )
+                    if attempt < max_retries:
+                        self.logger.info(f"Waiting {delay:.1f}s before retry...")
+                        time.sleep(delay)
+                        delay = min(delay * 2, 120.0)
+                    continue
+
+            else:
+                # No response at all
+                self.logger.warning(f"No response (attempt {attempt}/{max_retries})")
+                if attempt < max_retries:
+                    self.logger.info(f"Waiting {delay:.1f}s before retry...")
+                    time.sleep(delay)
+                    delay = min(delay * 2, 120.0)
+
+        # All retries exhausted
+        self.logger.error(
+            f"Redemption failed after {max_retries} attempts: "
+            f"code={code}, last_response={last_response}, "
+            f"last_response_type={last_response_type.name}"
+        )
+        return {
+            "success": False,
+            "attempts": max_retries,
+            "response": last_response,
+            "response_type": last_response_type.name,
+            "error": f"All {max_retries} attempts failed"
+        }
+
+    def batch_redeem(self, codes: list[str]) -> dict[str, dict]:
+        """
+        Redeem multiple gift codes with randomized pauses.
+        
+        Returns:
+            Dict mapping code -> result dict (same as redeem() return value)
+        """
         results = {}
-        for code in codes:
-            print(f"\n{'='*40}")
-            success = self.redeem(code)
-            results[code] = success
-            time.sleep(2)  # Cooldown between codes
+        total = len(codes)
+        
+        for i, code in enumerate(codes, 1):
+            self.logger.info(f"\n{'='*40}\nBatch redeem [{i}/{total}]: {code}")
+            
+            result = self.redeem(code)
+            results[code] = result
+            
+            if result["success"]:
+                self.logger.info(f"Code {code}: SUCCESS (attempts={result['attempts']})")
+            else:
+                self.logger.warning(
+                    f"Code {code}: FAILED — {result['error']} "
+                    f"(attempts={result['attempts']}, type={result['response_type']})"
+                )
+            
+            # Randomized cooldown between codes
+            if i < total:
+                pause = self.anti_detection.random_cycle_delay()
+                self.logger.info(f"Pause between codes: {pause:.1f}s")
+                time.sleep(pause)
+        
+        # Summary
+        successful = sum(1 for r in results.values() if r["success"])
+        self.logger.info(f"\nBatch complete: {successful}/{total} codes redeemed successfully")
+        
         return results

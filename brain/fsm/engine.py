@@ -1,6 +1,8 @@
 """
 brain/fsm/engine.py — Finite State Machine Engine
 Central decision loop that orchestrates all bot modules.
+Phase 3 Anti-Detection: randomized polling and session guarding.
+Phase 4 Analytics: state tracking, snapshots, and reporting.
 """
 
 import time
@@ -12,6 +14,16 @@ from typing import Optional
 
 from core.memory.radar import MemoryRadar
 from core.win32.hands import Win32GhostClient
+from core.anti_detection import AntiDetection, SessionGuard
+from utils.analytics import BotAnalytics
+
+# Lazy imports to avoid circular deps
+def _import_module(name: str):
+    import importlib
+    try:
+        return importlib.import_module(name)
+    except ImportError:
+        return None
 
 
 class BotState(Enum):
@@ -20,6 +32,11 @@ class BotState(Enum):
     GATHERING = "gathering"
     ATTACKING = "attacking"
     EXPLORING = "exploring"
+    MONSTER_HUNTING = "monster_hunting"
+    CARGO_CLAIMING = "cargo_claiming"
+    GUILD_DUTIES = "guild_duties"
+    QUESTING = "questing"
+    LABYRINTH = "labyrinth"
     WAITING = "waiting"
     ERROR = "error"
 
@@ -30,16 +47,23 @@ class FSMBotEngine:
     1. Reads game state from memory
     2. Decides the next state based on rules
     3. Executes the corresponding module
-    4. Loops
+    4. Loops with anti-detection randomized timing
+    5. Tracks all activity for analytics reporting
     """
 
-    def __init__(self):
+    def __init__(self, account_name: str = "default"):
         self.state = BotState.IDLE
         self.radar = MemoryRadar()
         self.hands = Win32GhostClient()
+        self.anti_detection = AntiDetection()
+        self.session_guard = SessionGuard()
         self._load_config()
         self._running = False
         self._thread: Optional[threading.Thread] = None
+
+        # Phase 4: Analytics integration
+        self.analytics = BotAnalytics(account_name)
+        self._previous_state = None
 
     def _load_config(self) -> None:
         cfg = Path(__file__).parent.parent.parent / "config" / "settings.json"
@@ -66,26 +90,55 @@ class FSMBotEngine:
         self._thread.start()
         print(f"[*] FSM Engine started — initial state: {self.state.value}")
 
+        # Phase 4: Take initial state snapshot
+        state = self._read_state()
+        if state:
+            self.analytics.snapshot_player_state(state)
+            self.analytics.record_action("engine_start", state)
+
     def stop(self) -> None:
         """Stop the FSM loop."""
         self._running = False
         if self._thread:
             self._thread.join(timeout=5)
+
+        # Phase 4: Take final state snapshot and generate session report
+        state = self._read_state()
+        if state:
+            self.analytics.snapshot_player_state(state)
+            self.analytics.record_action("engine_stop", state)
+
+        self.analytics.save()
         print("[*] FSM Engine stopped")
+        print("\n" + self.analytics.generate_session_report())
 
     def _loop(self) -> None:
-        """Main FSM loop — runs every polling_interval seconds."""
+        """Main FSM loop — randomized polling interval to avoid pattern detection."""
         while self._running:
             try:
+                # Check cooldown before each iteration
+                if self.session_guard.enforced_cooldown():
+                    remaining = self.session_guard.cooldown_remaining
+                    print(f"[*] FSM: In cooldown, {remaining:.0f}s remaining")
+                    time.sleep(min(self.polling_interval, remaining))
+                    continue
+
                 state = self._read_state()
                 new_state = self._decide_state(state)
                 self._execute_state(new_state, state)
                 self.state = new_state
+
             except Exception as e:
                 print(f"[!] FSM loop error: {e}")
                 self.state = BotState.ERROR
 
-            time.sleep(self.polling_interval)
+            # Randomized polling interval instead of fixed interval
+            jitter = self.anti_detection.jitter(
+                int(self.polling_interval * 1000),
+                variance_pct=0.25
+            )
+            sleep_seconds = jitter / 1000
+            time.sleep(sleep_seconds)
 
     def _read_state(self) -> Optional[dict]:
         """Read current player state from memory."""
@@ -112,6 +165,21 @@ class FSMBotEngine:
         if self.features.get("auto_attack") and level >= 5:
             return BotState.ATTACKING
 
+        if self.features.get("auto_monster"):
+            return BotState.MONSTER_HUNTING
+
+        if self.features.get("auto_cargo"):
+            return BotState.CARGO_CLAIMING
+
+        if self.features.get("auto_guild"):
+            return BotState.GUILD_DUTIES
+
+        if self.features.get("auto_quest"):
+            return BotState.QUESTING
+
+        if self.features.get("auto_labyrinth"):
+            return BotState.LABYRINTH
+
         if self.features.get("auto_explore"):
             return BotState.EXPLORING
 
@@ -119,6 +187,16 @@ class FSMBotEngine:
 
     def _execute_state(self, state: BotState, game_state: Optional[dict]) -> None:
         """Execute actions for the given state."""
+        # Phase 4: Record state transition
+        if self._previous_state != state:
+            from_state = self._previous_state.value if self._previous_state else "start"
+            self.analytics.record_state_transition(from_state, state.value)
+            self._previous_state = state
+
+        # Phase 4: Take periodic snapshots during active states
+        if game_state:
+            self.analytics.snapshot_player_state(game_state)
+
         if state == BotState.IDLE:
             print("[IDLE] No action needed")
 
@@ -129,15 +207,78 @@ class FSMBotEngine:
 
         elif state == BotState.GATHERING:
             print("[GATHERING] Resource gathering not yet dispatched")
+            # Phase 4: When gatherer module is integrated:
+            # self.analytics.record_resource_gather("food", gathered_amount)
 
         elif state == BotState.ATTACKING:
             print("[ATTACKING] Attack module not yet connected")
+            # Phase 4: When attacker module is integrated:
+            # self.analytics.record_attack(zone, point, result, ...)
 
         elif state == BotState.EXPLORING:
             print("[EXPLORING] Explorer module not yet connected")
 
+        elif state == BotState.MONSTER_HUNTING:
+            print("[MONSTER_HUNTING] Dispatching monster hunt...")
+            monster_mod = _import_module("modules.monster.bot")
+            if monster_mod:
+                bot = monster_mod.MonsterBot()
+                if bot.verify_ready():
+                    bot.run_cycle()
+                    self.analytics.record_action("monster_hunt", game_state)
+
+        elif state == BotState.CARGO_CLAIMING:
+            print("[CARGO_CLAIMING] Claiming cargo ship...")
+            cargo_mod = _import_module("modules.cargo.bot")
+            if cargo_mod:
+                bot = cargo_mod.CargoBot()
+                if bot.verify_ready():
+                    bot.run_cycle()
+                    self.analytics.record_action("cargo_claim", game_state)
+
+        elif state == BotState.GUILD_DUTIES:
+            print("[GUILD_DUTIES] Performing guild duties...")
+            guild_mod = _import_module("modules.guild.bot")
+            if guild_mod:
+                bot = guild_mod.GuildBot()
+                if bot.verify_ready():
+                    bot.run_cycle()
+                    self.analytics.record_action("guild_duty", game_state)
+
+        elif state == BotState.QUESTING:
+            print("[QUESTING] Completing daily quests...")
+            quester_mod = _import_module("modules.quester.bot")
+            if quester_mod:
+                bot = quester_mod.QuesterBot()
+                if bot.verify_ready():
+                    bot.run_cycle()
+                    self.analytics.record_action("quest_complete", game_state)
+
+        elif state == BotState.LABYRINTH:
+            print("[LABYRINTH] Solving labyrinth...")
+            lab_mod = _import_module("modules.labyrinth.bot")
+            if lab_mod:
+                bot = lab_mod.LabyrinthBot()
+                if bot.verify_ready():
+                    bot.run_cycle()
+                    self.analytics.record_action("labyrinth_solve", game_state)
+
         elif state == BotState.ERROR:
             print("[ERROR] Waiting for recovery...")
+
+    # Phase 4: Analytics helper methods for modules
+    def record_gather(self, resource: str, amount: int) -> None:
+        """Record resource gathering (call from gatherer module)."""
+        self.analytics.record_resource_gather(resource, amount)
+
+    def record_attack(self, zone: int, point: int, result: str,
+                      troops: int = 0, kills: int = 0, losses: int = 0) -> None:
+        """Record attack result (call from attacker module)."""
+        self.analytics.record_attack(zone, point, result, troops, kills, losses)
+
+    def record_march(self, duration: float, troops: int, resources: dict = None) -> None:
+        """Record march return (call from gatherer/attacker module)."""
+        self.analytics.record_march_return(duration, troops, resources)
 
     @property
     def status(self) -> dict:
@@ -146,4 +287,5 @@ class FSMBotEngine:
             "state": self.state.value,
             "game_detected": bool(self.radar.clients),
             "window_found": bool(self.hands.hwnd),
+            "analytics": self.analytics.get_session_stats(),
         }

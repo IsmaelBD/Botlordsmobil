@@ -1,6 +1,7 @@
 """
 modules/explorer/bot.py — Map Explorer
 Scans the game map to discover resource nodes, castles, and players.
+Phase 3 Anti-Detection: randomized timing and human-like clicks.
 """
 
 import json
@@ -9,14 +10,17 @@ from pathlib import Path
 
 from core.win32.hands import Win32GhostClient
 from core.memory.radar import MemoryRadar
+from core.anti_detection import AntiDetection, SessionGuard
 
 
 class ExplorerBot:
-    """Win32 macro + memory scanning based map exploration."""
+    """Win32 macro + memory scanning based map exploration with anti-detection."""
 
     def __init__(self):
         self.hands = Win32GhostClient()
         self.radar = MemoryRadar()
+        self.anti_detection = AntiDetection()
+        self.session_guard = SessionGuard()
         self._load_config()
 
     def _load_config(self) -> None:
@@ -33,7 +37,7 @@ class ExplorerBot:
 
         # Move camera to center
         self.hands.vClick(center_x, center_y)
-        time.sleep(1.0)
+        time.sleep(self.anti_detection.human_delay(800, 1500) / 1000)
 
         offsets = [
             (-1, -1), (-1, 0), (-1, 1),
@@ -42,11 +46,20 @@ class ExplorerBot:
         ]
 
         for dx, dy in offsets:
+            # Rate limit check before each action
+            if not self.session_guard.should_act("explore"):
+                print("[*] ExplorerBot: Rate limit, pausing...")
+                self.session_guard.random_pause()
+
             cx = center_x + dx * radius
             cy = center_y + dy * radius
             # Click to center map on this coordinate
             self.hands.vClick(cx, cy)
-            time.sleep(0.5)
+            time.sleep(self.anti_detection.human_delay(400, 900) / 1000)
+
+            # Record action
+            self.session_guard.record_action("explore")
+
             # Read potential target from memory
             # TODO: Hook into game's map rendering to get actual points
             discovered.append({"x": cx, "y": cy, "dx": dx, "dy": dy})
@@ -67,7 +80,8 @@ class ExplorerBot:
                 print(f"[*] Exploring cell ({col}, {row}) at ({x}, {y})")
                 points = self.scan_area(x, y)
                 results.extend(points)
-                time.sleep(1)
+                # Randomized inter-cell delay
+                time.sleep(self.anti_detection.random_cycle_delay())
 
         print(f"[+] Exploration complete. {len(results)} points scanned")
         return results
